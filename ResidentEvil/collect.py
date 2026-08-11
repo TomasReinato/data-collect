@@ -3,24 +3,36 @@
 
 import requests
 from bs4 import BeautifulSoup
+from tqdm import tqdm
+import polars as pl 
 
 # %%
 ###FUNCTIONS
-data = {}
+url = 'https://www.residentevildatabase.com/personagens/'
 
 def get_content(url):
     resp = requests.get(url)
     return resp
 
+def get_url_personagens(url):
+    resp = get_content(url)
+    if resp.status_code != 200:
+        print('Nãop foi possível obter os dados')
+    else:
+        soup_personagens = BeautifulSoup(resp.text)
+        sessoes = (soup_personagens.find("div", class_ = "td-page-content").find_all('a'))
+        get_url = [i.get('href') for i in sessoes]
+    return get_url
+
 def get_basic_infos(soup):
     div_page = soup.find("div", class_ = "td-page-content")
     paragrafo = div_page.find_all("p")[1]
     ems = paragrafo.find_all("em")
+    data = {}
     for i in ems:
-        chave,  valor = i.text.split(":")
+        chave,  valor, *_ = i.text.split(":")
         chave = chave.strip(" ")
         data[chave] = valor
-
     return data
 
 def get_apperances(soup):
@@ -32,44 +44,28 @@ def get_apperances(soup):
     appearances = [i.text for i in lis]
     return appearances
 
-def get_name(soup):
-    nome = (soup.find("div", class_ = "td-page-header")
-       .find('h1')
-       .find('span')
-       .text.split(" | ")
-    )
-    return nome[1]
+def get_personagens_info(url):
+    resp = get_content(url)
+    if resp.status_code != 200:
+        print("Não foi possível obter os dados")
+        return {}
+    else:
+        soup = BeautifulSoup(resp.text)
+        data = get_basic_infos(soup)
+        data['Appearances'] = get_apperances(soup)
+        return data
 
-url_geral = 'https://www.residentevildatabase.com/personagens/'
-get_url = 'https://www.residentevildatabase.com/personagens/ivan-ataman-judanovich/'
 # %%
-url = get_url
-resp = get_content(url)
-
-if resp.status_code != 200:
-    print('Nãop foi possível obter os dados')
-else:
-    soup = BeautifulSoup(resp.text)
-    data['Nome'] = get_name(soup)
-    data = get_basic_infos(soup)
-    data['Appearances'] = get_apperances(soup)
-    
-
-data
+urls = get_url_personagens(url)
+data = []
+for i in tqdm(urls):
+    print(i)
+    d = get_personagens_info(i)
+    d['link'] = i
+    nome = i.strip("/").split("/")[-1].replace("-", " ").title()
+    d["Nome"] = nome
+    data.append(d)
+# %%[
+lf = pl.DataFrame(data)
 # %%
-
-# def get_url_personagens(url_geral):
-personagens = get_content(url_geral)
-if personagens.status_code != 200:
-    print('Nãop foi possível obter os dados')
-else:
-    print(personagens.status_code)
-soup_personagens = BeautifulSoup(personagens.text)
-# get_url = (
-sessoes = (soup_personagens.find("div", class_ = "td-page-content").find_all('h3'))
-personagens_sessao = [i.find_next() for i in sessoes]
-        # .find_next('a')
-        # .get('href')
-    # )
-    # return get_url
-# get_url
+lf.write_parquet("output.parquet")
